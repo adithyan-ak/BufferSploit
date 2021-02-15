@@ -180,7 +180,7 @@ def remove_badchars(badchar):
     with open('badchar.txt', 'w') as f:
         logging.info("Appending the new Bad character")
         if badchar not in b.split(','):
-            b += badchar + ','
+            b += "x"+badchar + ','
         f.write(b)
         f.close()
     
